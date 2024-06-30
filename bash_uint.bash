@@ -33,13 +33,13 @@ dec2uint () (
         printf "$b";
     done
     
-    [[ "${FUNCNAME[0]}" == "${FUNCNAME[1]}" ]] ||  {
+    ${noTrailingNullFlag} || [[ "${FUNCNAME[0]}" == "${FUNCNAME[1]}" ]] ||  {
         [ -t 0 ] || {
             mapfile -t A <(cat <&${fd0});
             dec2uint -n "${A[@]}";
         } {fd0}<&0    
     
-        ${noTrailingNullFlag} || printf '\0';
+        printf '\0';
     }
 
 )
@@ -51,36 +51,42 @@ uint2dec() (
     #    1st hex (first 4 bits): tells how many (0-15/f) NULL-delimited reads are needed to read the [start of] the following number
     #    2nd hex (last 4 bits):  tells how many (0-15/f) additional bytes must be read (after the last NULL-delimited read) to read the [end of] the following number
     
-    local -a A;
-    local a b n n0 n1;
+    (
+        IFS=
+        
+        local -a A;
+        local a b c n n0 n1 REPLY;
     
-    {
         while true; do
             read -r -N 1 -u ${fd0};
             
             [[ $REPLY ]] || break;
             
-            printf -v n '%d' \'"${REPLY}";
-            
+            printf -v n '%d' "'"${REPLY};
             n0=$(( ( $n & 240 ) >> 4 ));
             n1=$(( $n & 15 ));
+            printf 'n=%s    n0=%s   n1=%s \n' $n $n0 $n1 >&2;
             
             if [[ "$n0" == 0 ]]; then
                 A=();
             else
-                mapfile -t -n ${n0} -d '' -u ${fd0} A
-                A=("${A[@]//?/\'& }");
-                A=(${A[@]/%/' 0x00 '});
+                mapfile -t -n ${n0} -d '' -u ${fd0} A;
+                A=("${A[@]/%/' 0 '}");
+                A=("${A[@]@Q}");
             fi
-            
-            [[ "$n1" == 0 ]] || {
-                read -r -N ${n1} -u ${fd0} a;
-                A+=(${a//?/\'& });
-            }
-        
-            printf -v b '%02x' "${A[@]}";
-            printf '%i ' $(( 16#"${b}" ));
+
+            if [[ "$n1" == 0 ]]; then
+                a=''
+            else
+                read -r -N 1 -u ${fd0} a;
+                a="${a@Q}"
+            fi
+
+            b="${A[*]//@(\$||\'|| ||$'\t'||$'\n'||$'\v')/}${a//@(\$||\'|| ||$'\t'||$'\n'||$'\v')/}";
+
+            printf -v c '%02x' ${b//\\/ 0};
+            printf '%i ' $(( 16#"${c}" ));
             
         done
-    } {fd0}<&0
+    ) {fd0}<&0
 )
