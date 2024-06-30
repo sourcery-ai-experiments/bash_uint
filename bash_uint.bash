@@ -53,6 +53,8 @@ uint2dec() (
     
     (
         IFS=
+        LC_ALL=C
+        LANG=C
         
         local -a A;
         local a b c n n0 n1 REPLY;
@@ -65,26 +67,30 @@ uint2dec() (
             printf -v n '%d' "'"${REPLY};
             n0=$(( ( $n & 240 ) >> 4 ));
             n1=$(( $n & 15 ));
-            printf 'n=%s    n0=%s   n1=%s \n' $n $n0 $n1 >&2;
             
             if [[ "$n0" == 0 ]]; then
                 A=();
             else
                 mapfile -t -n ${n0} -d '' -u ${fd0} A;
-                A=("${A[@]/%/' 0 '}");
                 A=("${A[@]@Q}");
+                A=("${A[@]/%/'\00'}");
             fi
 
             if [[ "$n1" == 0 ]]; then
                 a=''
             else
-                read -r -N 1 -u ${fd0} a;
-                a="${a@Q}"
+                read -r -N ${n1} -u ${fd0} a;
+                A+=("${a@Q}")
             fi
+            echo "${A[*]}"
 
-            b="${A[*]//@(\$||\'|| ||$'\t'||$'\n'||$'\v')/}${a//@(\$||\'|| ||$'\t'||$'\n'||$'\v')/}";
+            b=("${A[*]//@(\$||"'"||' '||$'\t'||$'\n'||$'\v')/}"); 
+            b="${b#\\}"
+            b=("${b//\\/')) \$((8#'}");
+            b=("${b/#/'\$((8#'}"); 
+            b=("${b/%/')) '}"); 
 
-            printf -v c '%02x' ${b//\\/ 0};
+            source /proc/self/fd/0 <<<"printf -v c '%02x' ${b//\\/}"
             printf '%i ' $(( 16#"${c}" ));
             
         done
